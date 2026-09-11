@@ -12,8 +12,8 @@
 
 完全离线运行:无网络、无 API key、无重依赖。
 
-如何运行(从 /Users/linhan/workspace/spine 目录):
-    examples/.venv/bin/python examples/spine_family_e2e.py
+如何运行(从本仓库根目录，先按 README.md 安装固定发布依赖):
+    .venv/bin/python spine_family_e2e.py
 """
 
 from __future__ import annotations
@@ -33,8 +33,10 @@ from corespine.llm.provider import ToolCall as LlmToolCall
 import pdfspine
 
 # ragspine: 离线 RAG —— 数值 FactStore + 叙事 ChunkStore
-from ragspine.storage.fact_store import Fact, FactStore
-from ragspine.agent.llm_provider import MockProvider as RagMockProvider  # 实现 corespine LLMProvider 缝
+from ragspine.storage.fact_store import Fact, FactStore, SqliteFactStore
+from ragspine.agent.llm_provider import (
+    MockProvider as RagMockProvider,
+)  # 实现 corespine LLMProvider 缝
 from ragspine.agent.agent import answer_question
 from ragspine.retrieval.chunking.chunk_store import ChunkStore
 from ragspine.retrieval.chunking.chunking import DocumentMeta
@@ -57,6 +59,12 @@ from spineagent import (
 
 def banner(s: str) -> None:
     print("\n" + "=" * 70 + f"\n{s}\n" + "=" * 70)
+
+
+def require(condition: bool, message: str) -> None:
+    """Fail the executable example when a demonstrated contract is broken."""
+    if not condition:
+        raise RuntimeError(message)
 
 
 # ONE 共享 sink —— 本 demo 的明星,贯穿三个包的每一个阶段。
@@ -99,6 +107,8 @@ def stage1_extract_pdf(pdf_path: Path) -> str:
     text = "\n".join(p.get_text() for p in doc)
     page_count = len(doc)
     doc.close()
+    require(page_count == 1, "expected one authored PDF page")
+    require(text == "\n".join(REPORT_LINES) + "\n", "PDF text content/order changed")
     print(f"page_count = {page_count}")
     print(f"char_count = {len(text)}")
     print("---- 抽取文本 ----")
@@ -109,12 +119,14 @@ def stage1_extract_pdf(pdf_path: Path) -> str:
     return text
 
 
-def stage2_rag(extracted_text: str) -> tuple[FactStore, NarrativeIndexRetriever, ChunkStore]:
+def stage2_rag(
+    extracted_text: str,
+) -> tuple[FactStore, NarrativeIndexRetriever, ChunkStore]:
     """STAGE 2 —— ragspine 灌库 + 接地回答(数值 + 叙事两条路)。"""
     banner("STAGE 2 — ragspine INGEST + RAG ANSWER")
 
     # 2a. 播种数值 FactStore(provenance 指向 STAGE-0 的 PDF)。
-    store = FactStore(":memory:")
+    store = SqliteFactStore(":memory:")
     store.init_schema()
     store.upsert_facts(
         [
@@ -154,6 +166,7 @@ def stage2_rag(extracted_text: str) -> tuple[FactStore, NarrativeIndexRetriever,
     )
     print(f"[2b] 已把抽取文本灌入叙事索引,chunk_count = {n_chunks}")
     sink.emit("rag.narrative.ingest", chunk_count=n_chunks)
+    require(n_chunks == 1, "expected one narrative chunk")
 
     # 2c. 接地回答。RagMockProvider 实现 corespine LLMProvider 缝(chat(messages,*,tools)->ChatCompletion)。
     retriever = NarrativeIndexRetriever(idx)
@@ -166,6 +179,35 @@ def stage2_rag(extracted_text: str) -> tuple[FactStore, NarrativeIndexRetriever,
         print(f"  route   = {res.route}")
         print(f"  answer  = {res.answer}")
         print(f"  sources = {res.sources}")
+        if narrative:
+            require(res.route == "narrative", "narrative routing changed")
+            require(
+                "Greater China" in res.answer,
+                "narrative answer lost the grounded region",
+            )
+            require(
+                res.sources
+                == [{"doc": "acme_fy2024.pdf", "locator": "acme_fy2024.pdf#para1-5"}],
+                "narrative provenance changed",
+            )
+        elif "FY2024" in question:
+            require(
+                res.route == "structured" and "1320 USD_M" in res.answer,
+                "numeric answer changed",
+            )
+            require(
+                res.sources == [{"doc": "acme_fy2024.pdf", "locator": "page=1,line=2"}],
+                "numeric provenance changed",
+            )
+        else:
+            require(
+                res.route == "structured" and not res.sources,
+                "missing fact gained provenance",
+            )
+            require(
+                "查不到" in res.answer and "1320" not in res.answer,
+                "missing fact was not refused",
+            )
         # corespine 缝:绝不传答案正文,只传元数据;route 字符串作为 *值* 是允许的(键名非禁用)。
         sink.emit(
             "rag.answer",
@@ -192,7 +234,9 @@ def stage3_agents(store: FactStore, retriever: NarrativeIndexRetriever) -> None:
     @function_tool
     def query_report(question: str) -> str:
         """Answer a question about the ACME annual report from the RAG store."""
-        res = answer_question(question, store, RagMockProvider(), narrative_retriever=retriever)
+        res = answer_question(
+            question, store, RagMockProvider(), narrative_retriever=retriever
+        )
         return res.answer
 
     # 3b. 确定性 scripted provider —— 实现 corespine LLMProvider 缝。
@@ -236,14 +280,30 @@ def stage3_agents(store: FactStore, retriever: NarrativeIndexRetriever) -> None:
             )
             return ChatCompletion(
                 choices=(
-                    Choice(0, ResponseMessage("assistant", f"依据 ACME 报告(经 RAG 工具): {tool_output}")),
+                    Choice(
+                        0,
+                        ResponseMessage(
+                            "assistant", f"依据 ACME 报告(经 RAG 工具): {tool_output}"
+                        ),
+                    ),
                 )
             )
 
-    print("[3a/3b] FunctionCallingAgent: scripted provider -> 调用 query_report 工具 -> 接地回答")
-    agent = FunctionCallingAgent("report-agent", ScriptedReportModel(), [query_report])
+    print(
+        "[3a/3b] FunctionCallingAgent: scripted provider -> 调用 query_report 工具 -> 接地回答"
+    )
+    model = ScriptedReportModel()
+    agent = FunctionCallingAgent("report-agent", model, [query_report])
     result = agent.step("Where does ACME operate?")
     print(f"  output = {result.output}")
+    require(
+        result.ok and model._calls == 2,
+        "scripted tool loop did not finish in two calls",
+    )
+    require(
+        "Greater China" in result.output and "acme_fy2024.pdf#para1-5" in result.output,
+        "grounded tool result did not return to the model",
+    )
 
     # 3c. 纯离线工具循环(无 LLM):SyntaxToolPolicy 路由 "<tool>: <arg>",$prev 串接上一步输出。
     print("\n[3c] 纯离线工具循环(无 LLM):net profit ~ revenue * margin = 1320 * 0.18")
@@ -251,12 +311,17 @@ def stage3_agents(store: FactStore, retriever: NarrativeIndexRetriever) -> None:
         "calc: 1320 * 0.18\n", trace=sink
     )
     print(f"  output = {calc_out.output}")
+    require(calc_out.ok and calc_out.output == "237.6", "calculator result changed")
 
     # 3d. Coordinator 编排多个 agent,全在共享 sink 上。
-    print("\n[3d] Coordinator 顺序编排: summarizer(LlmAgent) + formatter(FunctionAgent)")
+    print(
+        "\n[3d] Coordinator 顺序编排: summarizer(LlmAgent) + formatter(FunctionAgent)"
+    )
     coord = Coordinator(
         [
-            LlmAgent("summarizer", MockProvider(), system="summarize"),  # corespine MockProvider
+            LlmAgent(
+                "summarizer", MockProvider(), system="summarize"
+            ),  # corespine MockProvider
             FunctionAgent("formatter", lambda t: f"[REPORT] {t}"),
         ],
         trace=sink,
@@ -264,6 +329,11 @@ def stage3_agents(store: FactStore, retriever: NarrativeIndexRetriever) -> None:
     results = coord.run_sequential("ACME FY2024 revenue 1320M USD, margin 18%")
     for r in results:
         print(f"  {r.agent}: ok={r.ok} output={r.output}")
+    require(len(results) == 2 and all(r.ok for r in results), "coordinator failed")
+    require(
+        results[1].output == "[REPORT] ACME FY2024 revenue 1320M USD, margin 18%",
+        "formatter changed",
+    )
 
 
 def finale() -> None:
@@ -273,17 +343,35 @@ def finale() -> None:
     # 一个 sink,贯穿三个包,顺序记录了所有阶段的 trace code。
     print("sink.codes() (三个包在同一个 sink 上的全部有序 trace code):")
     print(f"  {sink.codes()}")
+    require(
+        sink.codes()
+        == [
+            "pdf.author",
+            "pdf.extract",
+            "rag.facts.ingest",
+            "rag.narrative.ingest",
+            "rag.answer",
+            "rag.answer",
+            "rag.answer",
+            "tool_step",
+            "agent_finish",
+            "coordinate",
+        ],
+        "shared trace sequence changed",
+    )
 
     # 隐私属性:试图泄漏答案正文 -> 被拒,且不留痕。
     before = len(sink.events)
     print("\n尝试 sink.emit('leak.attempt', answer='secret 1320') ...")
     try:
         sink.emit("leak.attempt", answer="secret 1320")
-        print("  !! 不应到达这里")
     except TraceError as e:
         after = len(sink.events)
+        require(before == after, "rejected private payload left a trace event")
         print(f"  被 TraceError 拒绝: {e}")
         print(f"  事件数未变: before={before} after={after} (拒绝任何正文,只记元数据)")
+    else:
+        raise RuntimeError("private trace payload was accepted")
 
     # 用到的 corespine 缝总结。
     print(
@@ -300,6 +388,9 @@ def finale() -> None:
     probe = reg.make("Mock", prefix="probe")  # 大小写不敏感
     completion: ChatCompletion = probe.chat([{"role": "user", "content": "hi"}])
     print(f"Registry 探针: make('Mock') -> {completion.choices[0].message.content!r}")
+    require(
+        completion.choices[0].message.content.endswith(" hi"), "registry probe failed"
+    )
 
 
 def main() -> None:

@@ -1,0 +1,89 @@
+RELEASE pdfspine==0.8.0: isolated index install
+RELEASE corespine==0.5.1: isolated index install
+RELEASE spineagent==0.3.1: isolated index install
+RELEASE rag-spine==0.13.0: isolated index install
+
+======================================================================
+STAGE 0 — pdfspine AUTHOR: 现场生成自包含演示语料 PDF
+======================================================================
+已写出演示 PDF: <temporary-directory>/acme_fy2024.pdf  (pages=1)
+
+======================================================================
+STAGE 1 — pdfspine EXTRACT: 抽取 PDF 文本
+======================================================================
+page_count = 1
+char_count = 266
+---- 抽取文本 ----
+ACME Corporation FY2024 Annual Report
+Total revenue for fiscal year 2024 was 1320 million USD.
+ACME primarily operates in the Greater China region.
+Net profit margin reached 18 percent in fiscal year 2024.
+The company employs over 5000 people across its operations.
+
+------------------
+
+======================================================================
+STAGE 2 — ragspine INGEST + RAG ANSWER
+======================================================================
+[2a] 已播种 1 条数值 Fact (REVENUE / ACME_CN / FY2024 = 1320 USD_M)
+[2b] 已把抽取文本灌入叙事索引,chunk_count = 1
+
+Q: What was ACME_CN FY2024 REVENUE?
+  route   = structured
+  answer  = ACME_CN FY2024 REVENUE：1320 USD_M（来源：acme_fy2024.pdf · page=1,line=2）
+  sources = [{'doc': 'acme_fy2024.pdf', 'locator': 'page=1,line=2'}]
+
+Q: Which region does ACME primarily operate in?
+  route   = narrative
+  answer  = 基于检索到的资料：
+。
+问题：Which region does ACME primarily operate in?
+检索片段：
+[1] ACME Corporation FY2024 Annual Report
+Total revenue for fiscal year 2024 was 1320 million USD.
+ACME primarily operates in the Greater China region.
+Net profit margin reached 18 percent in fiscal year 2024.
+The company employs over 5000 people across its operations.（来源：acme_fy2024.pdf acme_fy2024.pdf#para1-5）
+  sources = [{'doc': 'acme_fy2024.pdf', 'locator': 'acme_fy2024.pdf#para1-5'}]
+
+Q: What was ACME_CN FY2030 REVENUE?
+  route   = structured
+  answer  = 查不到：REVENUE / ACME_CN / 2030（渠道 TOTAL）未在事实表中找到。为避免误导，不提供任何推测数字；可尝试调整期间或实体后重问。
+  sources = []
+
+======================================================================
+STAGE 3 — spineagent ORCHESTRATION
+======================================================================
+[3a/3b] FunctionCallingAgent: scripted provider -> 调用 query_report 工具 -> 接地回答
+  output = 依据 ACME 报告(经 RAG 工具): 基于检索到的资料：
+。
+问题：Which region does ACME primarily operate in?
+检索片段：
+[1] ACME Corporation FY2024 Annual Report
+Total revenue for fiscal year 2024 was 1320 million USD.
+ACME primarily operates in the Greater China region.
+Net profit margin reached 18 percent in fiscal year 2024.
+The company employs over 5000 people across its operations.（来源：acme_fy2024.pdf acme_fy2024.pdf#para1-5）
+
+[3c] 纯离线工具循环(无 LLM):net profit ~ revenue * margin = 1320 * 0.18
+  output = 237.6
+
+[3d] Coordinator 顺序编排: summarizer(LlmAgent) + formatter(FunctionAgent)
+  summarizer: ok=True output=[mock:ed09fc53f47e] ACME FY2024 revenue 1320M USD, margin 18%
+  formatter: ok=True output=[REPORT] ACME FY2024 revenue 1320M USD, margin 18%
+
+======================================================================
+FINALE — 共享 trace 与隐私证明
+======================================================================
+sink.codes() (三个包在同一个 sink 上的全部有序 trace code):
+  ['pdf.author', 'pdf.extract', 'rag.facts.ingest', 'rag.narrative.ingest', 'rag.answer', 'rag.answer', 'rag.answer', 'tool_step', 'agent_finish', 'coordinate']
+
+尝试 sink.emit('leak.attempt', answer='secret 1320') ...
+  被 TraceError 拒绝: trace 载荷含受限字段 ['answer']:trace 只记 code / 计数 / 耗时,不得携带答案正文 / 字段取值 / chunk 正文。
+  事件数未变: before=10 after=10 (拒绝任何正文,只记元数据)
+
+corespine 缝总结: LLMProvider Protocol (ragspine MockProvider + spineagent scripted provider + corespine MockProvider 都说 ChatCompletion), InProcessPrivacyTraceSink (一个 sink,三个包), Registry (三个包内部均使用)。
+Registry 探针: make('Mock') -> '[probe:47ffbd8a15cc] hi'
+
+SPINE FAMILY E2E OK
+OFFLINE RELEASE VERIFICATION OK

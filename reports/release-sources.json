@@ -1,0 +1,58 @@
+[
+  {
+    "package": "pdfspine",
+    "version": "0.8.0",
+    "metadata_source": "https://pypi.org/pypi/pdfspine/0.8.0/json",
+    "matching_wheels": [
+      {
+        "filename": "pdfspine-0.8.0-cp311-abi3-macosx_11_0_arm64.whl",
+        "url": "https://files.pythonhosted.org/packages/95/13/b304f4f4bdf996cf81b2539efa10e465d0281fbb63b608c28b7bb5a7332e/pdfspine-0.8.0-cp311-abi3-macosx_11_0_arm64.whl",
+        "sha256": "7d9be88eb72d00b69799ea75015a9fa180975e2d1d4e5ab4ec10956415f490b0",
+        "downloaded_sha256": "7d9be88eb72d00b69799ea75015a9fa180975e2d1d4e5ab4ec10956415f490b0",
+        "installed_payload_files_verified": 37
+      }
+    ]
+  },
+  {
+    "package": "corespine",
+    "version": "0.5.1",
+    "metadata_source": "https://pypi.org/pypi/corespine/0.5.1/json",
+    "matching_wheels": [
+      {
+        "filename": "corespine-0.5.1-py3-none-any.whl",
+        "url": "https://files.pythonhosted.org/packages/79/05/0f852c00c004ffc5489d93aa3b1cca4883b809790f311ddcf27f4a06befe/corespine-0.5.1-py3-none-any.whl",
+        "sha256": "1d8e9ce88efd1adf14dfaaa51c3ef053c4618150483444457f2de0ca70479938",
+        "downloaded_sha256": "1d8e9ce88efd1adf14dfaaa51c3ef053c4618150483444457f2de0ca70479938",
+        "installed_payload_files_verified": 27
+      }
+    ]
+  },
+  {
+    "package": "spineagent",
+    "version": "0.3.1",
+    "metadata_source": "https://pypi.org/pypi/spineagent/0.3.1/json",
+    "matching_wheels": [
+      {
+        "filename": "spineagent-0.3.1-py3-none-any.whl",
+        "url": "https://files.pythonhosted.org/packages/58/75/05ac303ca8e600dc1eb93b0a2cb12f1b10dd450f3079edb2dc780d99e2c7/spineagent-0.3.1-py3-none-any.whl",
+        "sha256": "ba7c5dcbe94f0cc5c3b0ea77485f6d4ccbaf94d6870ed4def1aeb90ae1463010",
+        "downloaded_sha256": "ba7c5dcbe94f0cc5c3b0ea77485f6d4ccbaf94d6870ed4def1aeb90ae1463010",
+        "installed_payload_files_verified": 44
+      }
+    ]
+  },
+  {
+    "package": "rag-spine",
+    "version": "0.13.0",
+    "metadata_source": "https://pypi.org/pypi/rag-spine/0.13.0/json",
+    "matching_wheels": [
+      {
+        "filename": "rag_spine-0.13.0-py3-none-any.whl",
+        "url": "https://files.pythonhosted.org/packages/6c/09/a4723e9ddeabc5b74aeca48f8784b86da00831a8dcd2a3aba01c16e2360d/rag_spine-0.13.0-py3-none-any.whl",
+        "sha256": "4135ff19e15d46cf30e84495f0962db4fc2ae69d252d7e02575d979271a69b14",
+        "downloaded_sha256": "4135ff19e15d46cf30e84495f0962db4fc2ae69d252d7e02575d979271a69b14",
+        "installed_payload_files_verified": 250
+      }
+    ]
+  }
+]
